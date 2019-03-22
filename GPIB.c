@@ -1,19 +1,22 @@
-
+//https://stackoverflow.com/questions/19322975/g-createprocess-no-such-file-or-directory
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <conio.h>
+#include <unistd.h>
 
 #include <windows.h>
 #include "ni488.h"
 
 #define arr_len(x) (sizeof(x) / sizeof(x[0]))
 
-int GPIB = 0;                 // Board handle
+int GPIB = -1;                 // Board index
 
-int PAD = 1;                      // Primary address
+int PAD = -1;                      // Primary address
 int SAD = 0;                      // Secondary address
+char *CMDS = NULL;                //command to send 
+bool query  = false;              // is a query command 
 bool shutup = false;
 bool port   = false;
 
@@ -144,20 +147,34 @@ void send_msg_response(const int t, const char *s)
         send_comm_response(t, (const byte *)s, strlen(s));
 }
 
-void help()
+void help(const char *args[])
 {
     printf("GPIB client command options: \n");
     printf("    -port               as an Erlang port\n");
-    printf("    -handle <N>         board handle\n");
+    printf("    -gpib   <N>         board index(GPIB board index)\n");
     printf("    -pad    <N>         primary address\n");
-    printf("    -sad    <N>         primary address\n");
+    printf("    -sad    <N>         secondary address\n");
     printf("    -ls                 list all instruments on a board and quit\n");
     printf("    -shutup             suppress all error/debug prints\n");    
-    printf("    -help/-?            show this information\n");
-    printf("Note: Press Enter (empty input) to read device response\n");
+    printf("    -cmdstr <strings>   commands to send to the device\n");  
+    printf("    -query              the command is a query command \n");        
+    printf("    -help/-?            show this information\n\n");
+    printf("Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and secondary address 0 ) is\n\n");
+    printf("    Just send Command:\n");
+    printf("                 %s  -gpib 0 -pad 22 -cmdstr \"CONFigure:CONTinuity\" \n",args[0]);
+    printf("    or send Command then read response immediately: \n");
+    printf("                 %s  -gpib 0 -pad 22 -cmdstr \"READ?\" -query \n",args[0]);
+    printf("    or combine format \n");
+    printf("                 %s  -gpib 0 -pad 22  -query -cmdstr \"CONFigure:CONTinuity ; READ?\" \n",args[0]);
+    printf("    or communicate with device Interactively:\n");
+    printf("                 %s  -gpib 0 -pad 22\n",args[0]);
+    printf("    http://mikrosys.prz.edu.pl/KeySight/34410A_Quick_Reference.pdf \n\n");
+    printf("    http://ecee.colorado.edu/~mathys/ecen1400/pdf/references/HP34401A_BenchtopMultimeter.pdf \n\n");
+    printf("!Note: if -cmdstr not specified ,Press Enter (empty input) to read device response\n");
+    //usleep(2000);
 }
 
-int list_instruments()
+int list_instruments() // list all instruments 
 {
 
     int        Num_Instruments;            // Number of instruments on GPIB
@@ -300,6 +317,7 @@ BOOL ctrl_handler(DWORD fdwCtrlType)
 
 int as_port(gpib_dev *dev);
 int interactive(gpib_dev *dev);
+int operate_once(gpib_dev *dev);
 int __stdcall cb_on_rqs(int LocalUd, int LocalIbsta, int LocalIberr, 
       long LocalIbcntl, void *RefData);
 void stdout_on_receive(const char *s, const int len);
@@ -313,30 +331,49 @@ int main(const int argc, const char *args[])
     if (strcmp(args[i], "-"#param) == 0)   \
     {   var = atoi(args[i + 1]); i += 2; }
 
+#define load_s_param(var, param) \
+    if (strcmp(args[i], "-"#param) == 0)   \
+    {   strcpy(var, args[i + 1]); i += 2; }
+
 #define load_b_param(param) \
     if (strcmp(args[i], "-"#param) == 0)   \
     {   param = true; i++; }    
 
-
+ 
+    if (1 == argc ) //if no paraments specified,show help
+        {
+            help(args);
+            return -1;
+        }
+        
     int i = 1;
-    while (i < argc)
+    while (i < argc) //prase paraments
     {
-        load_i_param(GPIB, handle)
+        load_i_param(GPIB, gpib)
         else load_i_param(SAD, sad)
         else load_i_param(PAD, pad)
+
         else load_b_param(shutup)
         else load_b_param(port)
+        else load_s_param(CMDS, cmdstr)
+        else load_b_param(query)
         else if (strcmp(args[i], "-ls") == 0) 
         {
             return list_instruments();
         }
-        else if ((strcmp(args[i], "-help") == 0) || (strcmp(args[i], "-?") == 0))
+        else if ((strcmp(args[i], "-help") == 0) || (strcmp(args[i], "-?") == 0)|| (strcmp(args[i], "/?") == 0))
         {
-            help();
+            help(args);
             return -1;
         }
         else
             i++;
+    }
+    if (GPIB < 0 || PAD < 0 ) 
+    {
+        printf("GPIB board index , primary address must be specified: %s  -gpib 0 -pad 22 \n",args[0]);
+        printf("%d\n",argc);
+        return -1;  // address must be specified
     }
 
     if (!SetConsoleCtrlHandler((PHANDLER_ROUTINE)ctrl_handler, TRUE))
@@ -369,7 +406,13 @@ int main(const int argc, const char *args[])
     //     GPIBCleanup(dev.dev, "ibnotify call failed.\n");
     //     return 0;
     // }
-
+    
+        
+    if (CMDS) //if CMDS NOT empty ,operate once, write or query
+     {
+        return  operate_once(&dev);
+         //printf("CMDS:   %s \n",CMDS);
+     }
     if (port)
     {
         setmode(0, O_BINARY);
@@ -476,6 +519,38 @@ int interactive(gpib_dev *dev)
             printf(s);
         }
     }
+    return 0; //GPIB.c:517:1: warning: control reaches end of non-void function [-Wreturn-type] https://www.ibm.com/support/knowledgecenter/en/SSB23S_1.1.0.15/common/m1rhnvf.html
+}
+
+char CLS[] ="*CLS";
+int operate_once(gpib_dev *dev) // write or query , only once
+{
+        char s[10240 + 1]; // read buffer
+        s[0] = '\0';
+             // clear device first
+            ibwrt(dev->dev,CLS, strlen(CLS));
+            // write CMDS to device
+            ibwrt(dev->dev, CMDS, strlen(CMDS));
+            if (ibsta & ERR)
+            {
+               GPIBCleanup(dev->dev, "Unable to write to device");
+               return 1;
+            }
+           //Read response from device 
+       if(query) //
+       {
+            //printf("query:   %d\n",query);  
+            ibrd(dev->dev, s, sizeof(s) - 1);
+            if (ibsta & ERR)
+            {
+                GPIBCleanup(dev->dev, "Unable to read data from device");
+                return 1;
+            }
+            s[ibcntl] = '\0';
+            printf(s);
+       }
+       return 0;
+
 }
 
 void stdout_on_receive(const char *s, const int len)
