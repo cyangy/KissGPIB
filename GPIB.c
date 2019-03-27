@@ -21,6 +21,8 @@ static char  *CMDS = NULL;                //command to send
 static bool query  = false;              // is a query command 
 static bool shutup = false;
 static bool port   = false;
+static const char *file_name = NULL;          //when file name specified, save binary response to file
+static int  skip_first_n_bytes = -1;    //for some system(DCA86100,AQ6370,etc.), transfered data via GPIB contain extra bytes,user can skip them
 
 typedef void (* f_on_receive)(const char *str, const int len);
 
@@ -160,6 +162,8 @@ void help(const char *args[])
     printf("    -shutup             suppress all error/debug prints\n");    
     printf("    -cmdstr <strings>   commands to send to the device\n");  
     printf("    -query              the command is a query command \n");        
+    printf("    -save2file          save the response binary data to specify file");
+    printf("         -skip          skip first n bytes of received file\n");
     printf("    -help/-?            show this information\n\n");
     printf("Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and secondary address 0 ) is\n\n");
     printf("    Just send Command:\n");
@@ -172,6 +176,9 @@ void help(const char *args[])
     printf("                 %s  -gpib 0 -pad 22\n",args[0]);
     printf("    http://mikrosys.prz.edu.pl/KeySight/34410A_Quick_Reference.pdf \n\n");
     printf("    http://ecee.colorado.edu/~mathys/ecen1400/pdf/references/HP34401A_BenchtopMultimeter.pdf \n\n");
+    printf("Typical usage to save file(Agilent DCA86100 Legacy UI on GPIB board index 0  with primary address 7 and secondary address 0 ) is\n\n");
+    printf("Please refer to :https://www.keysight.com/upload/cmc_upload/All/86100_Programming_Guide.pdf#page=176\n");    
+	printf("                 %s  -gpib 0 -pad 7  -query -cmdstr \":DISPlay:DATA? JPG\" -save2file \"DCA86100 Legacy UI Screen Capture.jpg\" -skip 7 \n",args[0]);
     printf("!Note: if -cmdstr not specified ,Press Enter (empty input) to read device response\n");
     //usleep(2000);
 }
@@ -320,6 +327,7 @@ BOOL ctrl_handler(DWORD fdwCtrlType)
 int as_port(gpib_dev *dev);
 int interactive(gpib_dev *dev);
 int operate_once(gpib_dev *dev);
+int remove_first_n_bytes_from_file(const char *file_name, int n_bytes);
 int __stdcall cb_on_rqs(int LocalUd, int LocalIbsta, int LocalIberr, 
       long LocalIbcntl, void *RefData);
 void stdout_on_receive(const char *s, const int len);
@@ -362,6 +370,8 @@ int main(const int argc, const char *args[])
         else load_b_param(port)
         else load_s_param(CMDS, cmdstr)
         else load_b_param(query)
+		else load_s_param(file_name, save2file)
+		else load_i_param(skip_first_n_bytes, skip)
         else if (strcmp(args[i], "-ls") == 0) 
         {
             return list_instruments();
@@ -544,6 +554,19 @@ int operate_once(gpib_dev *dev) // write or query , only once
            //Read response from device 
        if(query) //
        {
+			if (file_name)                 //if file name specified,read data bytes to file // https://linux-gpib.sourceforge.io/doc_html/reference.html
+			{
+				        ibrdf(dev->dev,file_name);    // tail -c+9 1.jpg >2.JPG  https://stackoverflow.com/questions/4411014/how-to-get-only-the-first-ten-bytes-of-a-binary-file/4411216#4411216
+                          if (ibsta & ERR)
+                            {
+                            GPIBCleanup(dev->dev, "Unable to read data from device\n");
+                            return 1;
+                            }
+				if(0 < skip_first_n_bytes) {remove_first_n_bytes_from_file(file_name, skip_first_n_bytes);} //if user wants to remove first n bytes,remove them
+				goto EndOfOperateOnce;
+	       }
+			else
+		   {
             //printf("query:   %d\n",query);  
             ibrd(dev->dev, s, sizeof(s) - 1);
             if (ibsta & ERR)
@@ -553,7 +576,10 @@ int operate_once(gpib_dev *dev) // write or query , only once
             }
             s[ibcntl] = '\0';
             printf(s);
+		   }
        }
+EndOfOperateOnce:
+	   gpib_shutdown(dev); //shutdown gpib at last
        return 0;
 
 }
@@ -617,3 +643,54 @@ int __stdcall cb_on_rqs(int LocalUd, int LocalIbsta, int LocalIberr,
    return RQS;
 }
 
+//https://stackoverflow.com/questions/7749134/reading-and-writing-a-buffer-in-binary-file
+//https://www.linuxquestions.org/questions/programming-9/c-howto-read-binary-file-into-buffer-172985/
+int remove_first_n_bytes_from_file(const char *file_name, int n_bytes)
+{
+FILE            *file = NULL;
+char          *buffer = NULL;
+unsigned long fileLen = 0;
+
+//Open file
+file = fopen(file_name, "rb");
+if (!file)
+{
+	fprintf(stderr, "Unable to open file %s\n", file_name);
+	return -1 ;
+}
+
+//Get file length
+fseek(file, 0, SEEK_END);
+fileLen=ftell(file);
+fseek(file, 0, SEEK_SET);
+
+//Allocate memory
+buffer=(char *)malloc(fileLen+1);
+if (!buffer)
+{
+	fprintf(stderr, "Memory error!\n");
+	fclose(file);
+	return -2;
+}
+
+//Read file contents into buffer
+fread(buffer, fileLen, 1, file);
+fclose(file);
+
+//Do what ever with buffer       //
+/* Write your buffer to disk. */
+file = fopen(file_name, "wb+");
+
+if (file){
+	//buffer = buffer + n_bytes;				//delete first n bytes, thus buffer pointer move right  n_bytes
+    fwrite(buffer + n_bytes, fileLen - n_bytes, 1, file);
+}
+else{
+    puts("Something wrong writing to File.\n");
+}
+
+fclose(file);
+//buffer -= n_bytes;                        //reset buffer pointer,if not free memory cause segment fault
+free(buffer);
+return EXIT_SUCCESS;
+}
