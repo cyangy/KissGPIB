@@ -11,14 +11,14 @@
 
 #define arr_len(x) (sizeof(x) / sizeof(x[0]))
 
-int GPIB = -1;                 // Board index
+static int GPIB = -1;                 // Board index
 
-int PAD = -1;                      // Primary address
-int SAD = 0;                      // Secondary address
-char *CMDS = NULL;                //command to send 
-bool query  = false;              // is a query command 
-bool shutup = false;
-bool port   = false;
+static int     PAD = -1;                      // Primary address
+static int     SAD = 0;                      // Secondary address
+static char  *CMDS = NULL;                //command to send 
+static bool query  = false;              // is a query command 
+static bool shutup = false;
+static bool port   = false;
 
 typedef void (* f_on_receive)(const char *str, const int len);
 
