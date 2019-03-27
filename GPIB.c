@@ -24,6 +24,9 @@ static bool port   = false;
 static bool debug  = false;             //debug switch
 static const char *file_name = NULL;          //when file name specified, save binary response to file
 static int  skip_first_n_bytes = -1;    //for some system(DCA86100,AQ6370,etc.), transfered data via GPIB contain extra bytes,user can skip them
+static char *strtoul_endptr = NULL;
+static unsigned long  read_bytes = 0;   //read specified length of response then save to file
+static bool  noibrdf = false;           //save file not use ibrdf() method, default will use idrdf() to save file 
 
 typedef void (* f_on_receive)(const char *str, const int len);
 
@@ -166,6 +169,8 @@ void help(const char *args[])
     printf("    -query              the command is a query command \n");        
     printf("    -save2file          save the response binary data to specify file");
     printf("         -skip          skip first n bytes of received file\n");
+    printf("         -noibrdf       save file not use ibrdf() method, default will use idrdf() to save file\n");
+	 printf("         -rBytes        if -noibrdf specified ,must specify how many bytes should be read, but what should be noticed is that the : ibcntl : always store the actually transfer byte of length\n");
     printf("    -help/-?            show this information\n\n");
     printf("Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and secondary address 0 ) is\n\n");
     printf("    Just send Command:\n");
@@ -330,6 +335,7 @@ int as_port(gpib_dev *dev);
 int interactive(gpib_dev *dev);
 int operate_once(gpib_dev *dev);
 int remove_first_n_bytes_from_file(const char *file_name, int n_bytes);
+int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes);
 int __stdcall cb_on_rqs(int LocalUd, int LocalIbsta, int LocalIberr, 
       long LocalIbcntl, void *RefData);
 void stdout_on_receive(const char *s, const int len);
@@ -350,6 +356,13 @@ int main(const int argc, const char *args[])
 #define load_b_param(param) \
     if (strcmp(args[i], "-"#param) == 0)   \
     {   param = true; i++; }    
+//https://stackoverflow.com/questions/27260304/equivalent-of-atoi-for-unsigned-integers/27278489#27278489
+//
+#define load_ul_param(var, param) \
+	if (strcmp(args[i], "-"#param) == 0)   \
+	{	var = strtoul(args[i + 1],&strtoul_endptr,10); i += 2; }
+
+
 
  
     if (1 == argc ) //if no paraments specified,show help
@@ -375,6 +388,8 @@ int main(const int argc, const char *args[])
 		else load_b_param(debug)
 		else load_s_param(file_name, save2file)
 		else load_i_param(skip_first_n_bytes, skip)
+		else load_b_param(noibrdf)
+		else load_ul_param(read_bytes,rBytes)
         else if (strcmp(args[i], "-ls") == 0) 
         {
             return list_instruments();
@@ -561,12 +576,29 @@ int operate_once(gpib_dev *dev) // write or query , only once
 			if (file_name)                 //if file name specified,read data bytes to file // https://linux-gpib.sourceforge.io/doc_html/reference.html
 			{
 				       if (debug) printf("file_name is : %s \n file name string length = %d\n",file_name,strlen(file_name)+1); 
+                       if(noibrdf) //use idrd()  read  specified length of response then save it to file
+					   	{
+					   	  if(read_bytes > 0) //
+						  	{
+						  			read_n_bytes_use_ibrd_and_save_to_file(dev,file_name,read_bytes);
+									if (debug) printf("read_n_bytes_use_ibrd_and_save_to_file(%d,%s,%lu)\n",dev->dev,file_name,read_bytes);
+					   	  	}
+						  else      //-rBytes not specified 
+						  	{
+							   printf("Hence how many bytes need to be transfer not specified,no data transfered,please specified the -rBytes\n");
+					   	  	}
+						  	
+                       	}
+						else //use ibrdf() read response then save it to file
+						{ 
+						 if (debug) printf("ibrdf(dev->dev,file_name) used to save file: %s\n",file_name,read_bytes);
 				        ibrdf(dev->dev,file_name);    // tail -c+9 1.jpg >2.JPG  https://stackoverflow.com/questions/4411014/how-to-get-only-the-first-ten-bytes-of-a-binary-file/4411216#4411216
                           if (ibsta & ERR)
                             {
                             GPIBCleanup(dev->dev, "Unable to read data from device\n");
                             return 1;
                             }
+						}
 				if (debug) printf("actually %ld bytes data transfered\n",ibcntl);
 				if(0 < skip_first_n_bytes) {remove_first_n_bytes_from_file(file_name, skip_first_n_bytes);} //if user wants to remove first n bytes,remove them
 				goto EndOfOperateOnce;
@@ -699,5 +731,38 @@ else{
 fclose(file);
 //buffer -= n_bytes;                        //reset buffer pointer,if not free memory cause segment fault
 free(buffer);
+return EXIT_SUCCESS;
+}
+
+int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes)
+{
+FILE          *file = NULL;
+char          *buffer = NULL;
+buffer = (char *)malloc(n_bytes+1);// memory allocate
+if (!buffer)
+{
+	fprintf(stderr, "Memory error!\n");
+	return -2;
+}
+
+ibrd(dev->dev, buffer , n_bytes);
+
+if (ibsta & ERR)                   // Error occur£¬Clean up device and free memory
+  {
+  GPIBCleanup(dev->dev, "Unable to read data from device\n");
+  free(buffer);
+  return -1;
+  }
+
+/* Write buffer to disk. */
+file = fopen(file_name, "wb+");
+if (file){
+    fwrite(buffer,(ibcntl < n_bytes ? ibcntl : n_bytes), 1, file);  //no matter how big -rBytes specified, only write ibcntl bytes to file, it's meaningless to write extra null bytes to the file which only increase the file size
+}
+else{
+    puts("Something wrong writing to File.\n");
+}
+fclose(file);
+free(buffer); //free memory
 return EXIT_SUCCESS;
 }
