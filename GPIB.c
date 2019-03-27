@@ -333,7 +333,7 @@ int main(const int argc, const char *args[])
 
 #define load_s_param(var, param) \
     if (strcmp(args[i], "-"#param) == 0)   \
-    {   strcpy(var, args[i + 1]); i += 2; }
+    {   var = (char *)args[i + 1]; i += 2; }   //{   strcpy(var, args[i + 1]); i += 2; } is wrong
 
 #define load_b_param(param) \
     if (strcmp(args[i], "-"#param) == 0)   \
@@ -372,7 +372,7 @@ int main(const int argc, const char *args[])
     if (GPIB < 0 || PAD < 0 ) 
     {
         printf("GPIB board index , primary address must be specified: %s  -gpib 0 -pad 22 \n",args[0]);
-        printf("%d\n",argc);
+        printf("number of arguments :%d\n",argc);
         return -1;  // address must be specified
     }
 
@@ -525,8 +525,8 @@ int interactive(gpib_dev *dev)
 char CLS[] ="*CLS";
 int operate_once(gpib_dev *dev) // write or query , only once
 {
-        char s[10240 + 1]; // read buffer
-        s[0] = '\0';
+        char s[1024 + 1]; // read buffer , for common use 1024 bytes is enough
+        s[0] = '\0';      // fill first character as  string terminator "\0"
              // clear device first
             ibwrt(dev->dev,CLS, strlen(CLS));
             // write CMDS to device
