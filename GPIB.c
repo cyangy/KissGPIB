@@ -21,6 +21,7 @@ static char  *CMDS = NULL;                //command to send
 static bool query  = false;              // is a query command 
 static bool shutup = false;
 static bool port   = false;
+static bool debug  = false;             //debug switch
 static const char *file_name = NULL;          //when file name specified, save binary response to file
 static int  skip_first_n_bytes = -1;    //for some system(DCA86100,AQ6370,etc.), transfered data via GPIB contain extra bytes,user can skip them
 
@@ -160,6 +161,7 @@ void help(const char *args[])
     printf("    -sad    <N>         secondary address\n");
     printf("    -ls                 list all instruments on a board and quit\n");
     printf("    -shutup             suppress all error/debug prints\n");    
+    printf("    -debug              prints debug messages\n"); 	
     printf("    -cmdstr <strings>   commands to send to the device\n");  
     printf("    -query              the command is a query command \n");        
     printf("    -save2file          save the response binary data to specify file");
@@ -370,6 +372,7 @@ int main(const int argc, const char *args[])
         else load_b_param(port)
         else load_s_param(CMDS, cmdstr)
         else load_b_param(query)
+		else load_b_param(debug)
 		else load_s_param(file_name, save2file)
 		else load_i_param(skip_first_n_bytes, skip)
         else if (strcmp(args[i], "-ls") == 0) 
@@ -422,11 +425,12 @@ int main(const int argc, const char *args[])
     //     return 0;
     // }
     
-        
+    if (debug) printf("CMDS string length =%d\n",strlen(CMDS)+1);   
     if (CMDS) //if CMDS NOT empty ,operate once, write or query
      {
+        if (debug) { printf("CMDS:   %s \n",CMDS); }
         return  operate_once(&dev);
-         //printf("CMDS:   %s \n",CMDS);
+         
      }
     if (port)
     {
@@ -556,12 +560,14 @@ int operate_once(gpib_dev *dev) // write or query , only once
        {
 			if (file_name)                 //if file name specified,read data bytes to file // https://linux-gpib.sourceforge.io/doc_html/reference.html
 			{
+				       if (debug) printf("file_name is : %s \n file name string length = %d\n",file_name,strlen(file_name)+1); 
 				        ibrdf(dev->dev,file_name);    // tail -c+9 1.jpg >2.JPG  https://stackoverflow.com/questions/4411014/how-to-get-only-the-first-ten-bytes-of-a-binary-file/4411216#4411216
                           if (ibsta & ERR)
                             {
                             GPIBCleanup(dev->dev, "Unable to read data from device\n");
                             return 1;
                             }
+				if (debug) printf("actually %ld bytes data transfered\n",ibcntl);
 				if(0 < skip_first_n_bytes) {remove_first_n_bytes_from_file(file_name, skip_first_n_bytes);} //if user wants to remove first n bytes,remove them
 				goto EndOfOperateOnce;
 	       }
@@ -684,6 +690,7 @@ file = fopen(file_name, "wb+");
 if (file){
 	//buffer = buffer + n_bytes;				//delete first n bytes, thus buffer pointer move right  n_bytes
     fwrite(buffer + n_bytes, fileLen - n_bytes, 1, file);
+   if(debug) printf("first %d bytes of %s has benn removed\n",n_bytes,file_name);
 }
 else{
     puts("Something wrong writing to File.\n");
