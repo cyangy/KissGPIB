@@ -11,6 +11,8 @@
 
 #define arr_len(x) (sizeof(x) / sizeof(x[0]))
 
+#define DebugCode (true)
+
 static int GPIB = -1;                 // Board index
 
 static int     PAD = -1;                      // Primary address
@@ -349,6 +351,9 @@ int main(const int argc, const char *args[])
     int i = 1;
     while (i < argc) //prase paraments
     {
+		#if DebugCode
+		printf("args[%d]=%s\n",i,args[i]); 
+		#endif
         load_i_param(GPIB, gpib)
         else load_i_param(SAD, sad)
         else load_i_param(PAD, pad)
