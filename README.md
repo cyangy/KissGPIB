@@ -47,7 +47,7 @@ Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and
 
 Typical usage to save file(Agilent DCA86100 Legacy UI on GPIB board index 0  with primary address 7 and secondary address 0 ) is
 
-Please refer to :https://www.keysight.com/upload/cmc_upload/All/86100_Programming_Guide.pdf#page=176
+    Please refer to :https://www.keysight.com/upload/cmc_upload/All/86100_Programming_Guide.pdf#page=176
                  GPIB.exe  -gpib 0 -pad 7  -query -cmdstr ":DISPlay:DATA? JPG" -save2file "DCA86100 Legacy UI Screen Capture.jpg" -skip 7
 !Note: if -cmdstr not specified ,Press Enter (empty input) to read device response
 
