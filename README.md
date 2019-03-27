@@ -22,10 +22,13 @@ GPIB client command options:
     -sad    <N>         secondary address
     -ls                 list all instruments on a board and quit
     -shutup             suppress all error/debug prints
+    -debug              prints debug messages
     -cmdstr <strings>   commands to send to the device
     -query              the command is a query command
-    -save2file          save the response binary data to specify file
-         -skip          skip first n bytes of received file
+    -save2file          save the response binary data to specify file         -skip          skip first n bytes of received file
+         -noibrdf       save file not use ibrdf() method, default will use idrdf() to save file
+         -rBytes        if -noibrdf specified ,must specify how many bytes should be read, but what should be noticed is that the : ibcntl : always store the actually transfer byte of length
+         -overwrite     if file exist ,overwrite it
     -help/-?            show this information
 
 Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and secondary address 0 ) is
@@ -41,6 +44,7 @@ Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and
     http://mikrosys.prz.edu.pl/KeySight/34410A_Quick_Reference.pdf
 
     http://ecee.colorado.edu/~mathys/ecen1400/pdf/references/HP34401A_BenchtopMultimeter.pdf
+
 Typical usage to save file(Agilent DCA86100 Legacy UI on GPIB board index 0  with primary address 7 and secondary address 0 ) is
 
 Please refer to :https://www.keysight.com/upload/cmc_upload/All/86100_Programming_Guide.pdf#page=176

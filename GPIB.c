@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <conio.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <windows.h>
 #include "ni488.h"
@@ -23,6 +24,8 @@ static bool shutup = false;
 static bool port   = false;
 static bool debug  = false;             //debug switch
 static const char *file_name = NULL;          //when file name specified, save binary response to file
+static bool  overwrite = false;         //if file exist ,overwrite it
+
 static int  skip_first_n_bytes = -1;    //for some system(DCA86100,AQ6370,etc.), transfered data via GPIB contain extra bytes,user can skip them
 static char *strtoul_endptr = NULL;
 static unsigned long  read_bytes = 0;   //read specified length of response then save to file
@@ -171,6 +174,7 @@ void help(const char *args[])
     printf("         -skip          skip first n bytes of received file\n");
     printf("         -noibrdf       save file not use ibrdf() method, default will use idrdf() to save file\n");
 	 printf("         -rBytes        if -noibrdf specified ,must specify how many bytes should be read, but what should be noticed is that the : ibcntl : always store the actually transfer byte of length\n");
+	printf("         -overwrite     if file exist ,overwrite it\n");	
     printf("    -help/-?            show this information\n\n");
     printf("Typical usage (Agilent 34401A on GPIB board index 0  with primary address 22 and secondary address 0 ) is\n\n");
     printf("    Just send Command:\n");
@@ -336,6 +340,10 @@ int interactive(gpib_dev *dev);
 int operate_once(gpib_dev *dev);
 int remove_first_n_bytes_from_file(const char *file_name, int n_bytes);
 int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes);
+const char *get_filename_ext_without_dot(const char *filename);
+const char *generate_new_file_name(const char* old_file_name,char * new_file_name);
+
+
 int __stdcall cb_on_rqs(int LocalUd, int LocalIbsta, int LocalIberr, 
       long LocalIbcntl, void *RefData);
 void stdout_on_receive(const char *s, const int len);
@@ -387,6 +395,7 @@ int main(const int argc, const char *args[])
         else load_b_param(query)
 		else load_b_param(debug)
 		else load_s_param(file_name, save2file)
+		else load_b_param(overwrite)
 		else load_i_param(skip_first_n_bytes, skip)
 		else load_b_param(noibrdf)
 		else load_ul_param(read_bytes,rBytes)
@@ -576,6 +585,12 @@ int operate_once(gpib_dev *dev) // write or query , only once
 			if (file_name)                 //if file name specified,read data bytes to file // https://linux-gpib.sourceforge.io/doc_html/reference.html
 			{
 				       if (debug) printf("file_name is : %s \n file name string length = %d\n",file_name,strlen(file_name)+1); 
+					   if(!overwrite && access( file_name, F_OK ) != -1 ) //if file exist && not overwrite, save a new file name //https://stackoverflow.com/questions/230062/whats-the-best-way-to-check-if-a-file-exists-in-c/230068#230068
+					   	{	
+					   	 char  new_file_name[300+1];
+						 file_name = generate_new_file_name(file_name,new_file_name); //update file name
+						if (debug) printf("File exist,new file_name is : %s \n file name string length = %d\n",file_name,strlen(file_name)+1); 
+					   	}
                        if(noibrdf) //use idrd()  read  specified length of response then save it to file
 					   	{
 					   	  if(read_bytes > 0) //
@@ -747,7 +762,7 @@ if (!buffer)
 
 ibrd(dev->dev, buffer , n_bytes);
 
-if (ibsta & ERR)                   // Error occur£¬Clean up device and free memory
+if (ibsta & ERR)                   // Error occur,Clean up device and free memory
   {
   GPIBCleanup(dev->dev, "Unable to read data from device\n");
   free(buffer);
@@ -765,4 +780,51 @@ else{
 fclose(file);
 free(buffer); //free memory
 return EXIT_SUCCESS;
+}
+
+//https://stackoverflow.com/questions/5309471/getting-file-extension-in-c/5309508#5309508
+const char *get_filename_ext_without_dot(const char *filename) 
+{
+    const char *dot = strrchr(filename, '.'); //find the posistion of .  possible situation  : nameext  .nameext  name.ext. ...  name.ext .name.ext 
+    if(!dot || dot == filename)  //no extension:  nameext /or no file name: .nameext
+    {
+		return filename + strlen(filename); //return the pointer to '\0'(end of string)
+    }
+	else
+    {
+           return dot + 1;           //name.ext. ... name.ext  .name.ext  just return the pointer after .
+    }
+    
+}
+const char *generate_new_file_name(const char* old_file_name,char * new_file_name)
+{
+   char new_file_name_full[300 + 1];
+   static unsigned int  file_name_length = 0;
+   const char *new_file_extension = NULL;
+   new_file_name_full[0] ='\0';
+
+  //https://stackoverflow.com/questions/3673226/how-to-print-time-in-format-2009-08-10-181754-811/3673291#3673291
+  //get current time 
+  time_t rawtime;
+  char current_time[30];
+  struct tm* tm_info;
+  time(&rawtime);
+  tm_info = localtime(&rawtime);
+  strftime(current_time, sizeof(current_time), "%Y-%m-%d %H:%M:%S", tm_info);
+
+  //get file name and file extension
+  new_file_extension = get_filename_ext_without_dot(old_file_name);
+
+  if(!(*new_file_extension)) // if value of *ptr is '\0' , prove that no extension
+      file_name_length = strlen(old_file_name);// sizeof(old_file_name) will always return 4
+  else  //extension exist , file name length is  new_file_extension-old_file_name-1 //substrate two pointer  return the length of the string  
+      file_name_length = new_file_extension-old_file_name-1;
+
+
+   //generate new file name 
+   //https://stackoverflow.com/questions/1000556/what-does-the-s-format-specifier-mean/1000574#1000574
+   //https://stackoverflow.com/questions/5932214/printf-string-variable-length-item/5932385#5932385
+   snprintf(new_file_name_full, sizeof(new_file_name_full), "%.*s_%s%s",file_name_length,old_file_name,current_time,new_file_extension);// oldname_time.ext
+   snprintf(new_file_name,sizeof(new_file_name),"%s",new_file_name_full);
+   return (const char *) new_file_name;
 }
