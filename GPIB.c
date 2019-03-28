@@ -798,9 +798,10 @@ const char *get_filename_ext_without_dot(const char *filename)
 }
 const char *generate_new_file_name(const char* old_file_name,char * new_file_name)
 {
-   char new_file_name_full[300 + 1];
+   char new_file_name_full[255 + 1];
    static unsigned int  file_name_length = 0;
    const char *new_file_extension = NULL;
+   static bool is_extension_exist = false;
    new_file_name_full[0] ='\0';
 
   //https://stackoverflow.com/questions/3673226/how-to-print-time-in-format-2009-08-10-181754-811/3673291#3673291
@@ -818,13 +819,16 @@ const char *generate_new_file_name(const char* old_file_name,char * new_file_nam
   if(!(*new_file_extension)) // if value of *ptr is '\0' , prove that no extension
       file_name_length = strlen(old_file_name);// sizeof(old_file_name) will always return 4
   else  //extension exist , file name length is  new_file_extension-old_file_name-1 //substrate two pointer  return the length of the string  
+    {
       file_name_length = new_file_extension-old_file_name-1;
+      is_extension_exist = true;
+  	}
 
 
    //generate new file name 
    //https://stackoverflow.com/questions/1000556/what-does-the-s-format-specifier-mean/1000574#1000574
    //https://stackoverflow.com/questions/5932214/printf-string-variable-length-item/5932385#5932385
-   snprintf(new_file_name_full, sizeof(new_file_name_full), "%.*s_%s%s",file_name_length,old_file_name,current_time,new_file_extension);// oldname_time.ext
-   snprintf(new_file_name,sizeof(new_file_name),"%s",new_file_name_full);
+   snprintf(new_file_name_full, sizeof(new_file_name_full), "%.*s_%s%s%s",file_name_length,old_file_name,current_time,(is_extension_exist?".":"\0"),new_file_extension);// oldname_time.ext
+   snprintf(new_file_name,(strlen(new_file_name_full)+1),"%s",new_file_name_full);
    return (const char *) new_file_name;
 }
