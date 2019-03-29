@@ -811,7 +811,7 @@ const char *generate_new_file_name(const char* old_file_name,char * new_file_nam
   struct tm* tm_info;
   time(&rawtime);
   tm_info = localtime(&rawtime);
-  strftime(current_time, sizeof(current_time), "%Y-%m-%d %H:%M:%S", tm_info);
+  strftime(current_time, sizeof(current_time), "%Y-%m-%d %H%M%S", tm_info);
 
   //get file name and file extension
   new_file_extension = get_filename_ext_without_dot(old_file_name);
