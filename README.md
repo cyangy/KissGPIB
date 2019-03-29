@@ -25,7 +25,8 @@ GPIB client command options:
     -debug              prints debug messages
     -cmdstr <strings>   commands to send to the device
     -query              the command is a query command
-    -save2file          save the response binary data to specify file         -skip          skip first n bytes of received file
+    -save2file          save the response binary data to specify file
+         -skip          skip first n bytes of received file
          -noibrdf       save file not use ibrdf() method, default will use idrdf() to save file
          -rBytes        if -noibrdf specified ,must specify how many bytes should be read, but what should be noticed is that the : ibcntl : always store the actually transfer byte of length
          -overwrite     if file exist ,overwrite it
