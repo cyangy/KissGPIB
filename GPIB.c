@@ -26,7 +26,7 @@ static bool debug  = false;             //debug switch
 static const char *file_name = NULL;          //when file name specified, save binary response to file
 static bool  overwrite = false;         //if file exist ,overwrite it
 
-static int  skip_first_n_bytes = -1;    //for some system(DCA86100,AQ6370,etc.), transfered data via GPIB contain extra bytes,user can skip them
+static unsigned int  skip_first_n_bytes = 0;    //for some system(DCA86100,AQ6370,etc.), transfered data via GPIB contain extra bytes,user can skip them
 static char *strtoul_endptr = NULL;
 static unsigned long  read_bytes = 0;   //read specified length of response then save to file
 static bool  noibrdf = false;           //save file not use ibrdf() method, default will use idrdf() to save file 
@@ -170,7 +170,7 @@ void help(const char *args[])
     printf("    -debug              prints debug messages\n"); 	
     printf("    -cmdstr <strings>   commands to send to the device\n");  
     printf("    -query              the command is a query command \n");        
-    printf("    -save2file          save the response binary data to specify file");
+    printf("    -save2file          save the response binary data to specify file\n");
     printf("         -skip          skip first n bytes of received file\n");
     printf("         -noibrdf       save file not use ibrdf() method, default will use idrdf() to save file\n");
 	 printf("         -rBytes        if -noibrdf specified ,must specify how many bytes should be read, but what should be noticed is that the : ibcntl : always store the actually transfer byte of length\n");
@@ -338,8 +338,8 @@ BOOL ctrl_handler(DWORD fdwCtrlType)
 int as_port(gpib_dev *dev);
 int interactive(gpib_dev *dev);
 int operate_once(gpib_dev *dev);
-int remove_first_n_bytes_from_file(const char *file_name, int n_bytes);
-int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes);
+int remove_first_n_bytes_from_file(const char *file_name, unsigned int skip_first_n_bytes);
+int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes,unsigned int skip_first_n_bytes);
 const char *get_filename_ext_without_dot(const char *filename);
 const char *generate_new_file_name(const char* old_file_name,char * new_file_name);
 
@@ -595,7 +595,7 @@ int operate_once(gpib_dev *dev) // write or query , only once
 					   	{
 					   	  if(read_bytes > 0) //
 						  	{
-						  			read_n_bytes_use_ibrd_and_save_to_file(dev,file_name,read_bytes);
+						  			read_n_bytes_use_ibrd_and_save_to_file(dev,file_name,read_bytes,skip_first_n_bytes);
 									if (debug) printf("read_n_bytes_use_ibrd_and_save_to_file(%d,%s,%lu)\n",dev->dev,file_name,read_bytes);
 					   	  	}
 						  else      //-rBytes not specified 
@@ -607,15 +607,15 @@ int operate_once(gpib_dev *dev) // write or query , only once
 						else //use ibrdf() read response then save it to file
 						{ 
 						 if (debug) printf("ibrdf(dev->dev,file_name) used to save file: %s\n",file_name,read_bytes);
-				        ibrdf(dev->dev,file_name);    // tail -c+9 1.jpg >2.JPG  https://stackoverflow.com/questions/4411014/how-to-get-only-the-first-ten-bytes-of-a-binary-file/4411216#4411216
+				          ibrdf(dev->dev,file_name);    // tail -c+9 1.jpg >2.JPG  https://stackoverflow.com/questions/4411014/how-to-get-only-the-first-ten-bytes-of-a-binary-file/4411216#4411216
                           if (ibsta & ERR)
                             {
                             GPIBCleanup(dev->dev, "Unable to read data from device\n");
                             return 1;
                             }
+						  if(0 < skip_first_n_bytes){ remove_first_n_bytes_from_file(file_name, skip_first_n_bytes); }  //if user wants to remove first n bytes,remove them
 						}
 				if (debug) printf("actually %ld bytes data transfered\n",ibcntl);
-				if(0 < skip_first_n_bytes) {remove_first_n_bytes_from_file(file_name, skip_first_n_bytes);} //if user wants to remove first n bytes,remove them
 				goto EndOfOperateOnce;
 	       }
 			else
@@ -698,7 +698,7 @@ int __stdcall cb_on_rqs(int LocalUd, int LocalIbsta, int LocalIberr,
 
 //https://stackoverflow.com/questions/7749134/reading-and-writing-a-buffer-in-binary-file
 //https://www.linuxquestions.org/questions/programming-9/c-howto-read-binary-file-into-buffer-172985/
-int remove_first_n_bytes_from_file(const char *file_name, int n_bytes)
+int remove_first_n_bytes_from_file(const char *file_name, unsigned int skip_first_n_bytes)
 {
 FILE            *file = NULL;
 char          *buffer = NULL;
@@ -716,6 +716,12 @@ if (!file)
 fseek(file, 0, SEEK_END);
 fileLen=ftell(file);
 fseek(file, 0, SEEK_SET);
+
+if(fileLen < skip_first_n_bytes)
+{
+ fprintf(stderr, "file size is only  %lu bytes,but you want to remove %u bytes,what are you doing?\n", fileLen,skip_first_n_bytes);
+ return -1;
+}
 
 //Allocate memory
 buffer=(char *)malloc(fileLen+1);
@@ -736,8 +742,8 @@ file = fopen(file_name, "wb+");
 
 if (file){
 	//buffer = buffer + n_bytes;				//delete first n bytes, thus buffer pointer move right  n_bytes
-    fwrite(buffer + n_bytes, fileLen - n_bytes, 1, file);
-   if(debug) printf("first %d bytes of %s has benn removed\n",n_bytes,file_name);
+    fwrite((buffer + skip_first_n_bytes), (fileLen - skip_first_n_bytes), 1, file);
+   if(debug) printf("first %u bytes of %s has benn removed\n",skip_first_n_bytes,file_name);
 }
 else{
     puts("Something wrong writing to File.\n");
@@ -749,7 +755,7 @@ free(buffer);
 return EXIT_SUCCESS;
 }
 
-int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes)
+int read_n_bytes_use_ibrd_and_save_to_file(gpib_dev *dev,const char *file_name, unsigned long n_bytes,unsigned int skip_first_n_bytes)
 {
 FILE          *file = NULL;
 char          *buffer = NULL;
@@ -772,7 +778,7 @@ if (ibsta & ERR)                   // Error occur,Clean up device and free memor
 /* Write buffer to disk. */
 file = fopen(file_name, "wb+");
 if (file){
-    fwrite(buffer,(ibcntl < n_bytes ? ibcntl : n_bytes), 1, file);  //no matter how big -rBytes specified, only write ibcntl bytes to file, it's meaningless to write extra null bytes to the file which only increase the file size
+    fwrite((buffer+skip_first_n_bytes),((ibcntl < n_bytes ? ibcntl : n_bytes)-skip_first_n_bytes), 1, file);  //no matter how big -rBytes specified, only write ibcntl bytes to file, it's meaningless to write extra null bytes to the file which only increase the file size
 }
 else{
     puts("Something wrong writing to File.\n");
